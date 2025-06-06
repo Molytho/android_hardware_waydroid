@@ -93,13 +93,6 @@ struct layerFrame {
     int y;
 };
 
-struct handleExt {
-    uint32_t format;
-    uint32_t stride;
-    uint32_t width;
-    uint32_t height;
-};
-
 struct waydroid_hwc_composer_device_1;
 
 struct buffer_metadata {
@@ -373,8 +366,8 @@ struct display {
 
     std::map<uint32_t, std::vector<uint64_t>> modifiers;
     std::map<uint32_t, std::string> layer_names;
-    std::map<uint32_t, struct handleExt> layer_handles_ext;
-    struct handleExt target_layer_handle_ext;
+    std::map<uint32_t, buffer_metadata> layer_handles_ext;
+    buffer_metadata target_layer_handle_ext;
     std::unordered_map<buffer_handle_t, std::unique_ptr<buffer>> buffer_map;
     std::array<uint8_t, 239> keysDown;
 

@@ -33,19 +33,13 @@ Return<Error> WaydroidDisplay::setLayerName(uint32_t layer, const hidl_string &n
     return Error::NONE;
 }
 Return<Error> WaydroidDisplay::setLayerHandleInfo(uint32_t layer, uint32_t format, uint32_t stride) {
-    mDisplay->layer_handles_ext[layer] = 
-    {
-        .format = format,
-        .stride = stride
-    };
+    mDisplay->layer_handles_ext[layer].format = format;
+    mDisplay->layer_handles_ext[layer].pixel_stride = stride;
     return Error::NONE;
 }
 Return<Error> WaydroidDisplay::setTargetLayerHandleInfo(uint32_t format, uint32_t stride) {
-    mDisplay->target_layer_handle_ext = 
-    {
-        .format = format,
-        .stride = stride
-    };
+    mDisplay->target_layer_handle_ext.format = format;
+    mDisplay->target_layer_handle_ext.pixel_stride = stride;
     return Error::NONE;
 }
 

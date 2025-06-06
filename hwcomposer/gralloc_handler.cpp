@@ -216,25 +216,19 @@ std::unique_ptr<buffer> create_android_wl_buffer(display *display, const buffer_
 
 namespace {
 buffer_metadata get_buffer_metadata_generic(display *display, hwc_layer_1_t *layer, size_t pos) {
-    uint32_t format, pixel_stride, width, height;
+    buffer_metadata metadata;
     if (layer->compositionType == HWC_FRAMEBUFFER_TARGET) {
-        format = display->target_layer_handle_ext.format;
-        pixel_stride = display->target_layer_handle_ext.stride;
-        width = display->target_layer_handle_ext.width;
-        height = display->target_layer_handle_ext.height;
+        metadata = display->target_layer_handle_ext;
     } else {
-        format = display->layer_handles_ext[pos].format;
-        pixel_stride = display->layer_handles_ext[pos].stride;
-        width = display->layer_handles_ext[pos].width;
-        height = display->layer_handles_ext[pos].height;
+        metadata = display->layer_handles_ext[pos];
     }
 
-    if (!width)
-        width = layer->displayFrame.right - layer->displayFrame.left;
-    if (!height)
-        height = layer->displayFrame.bottom - layer->displayFrame.top;
+    if (!metadata.width)
+        metadata.width = layer->displayFrame.right - layer->displayFrame.left;
+    if (!metadata.height)
+        metadata.height = layer->displayFrame.bottom - layer->displayFrame.top;
 
-    return {height, width, pixel_stride, format};
+    return metadata;
 }
 buffer_metadata get_buffer_metadata_gbm(display *, hwc_layer_1_t *layer, size_t) {
     auto handle = reinterpret_cast<const gralloc_handle_t *>(layer->handle);

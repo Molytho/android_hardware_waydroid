@@ -52,7 +52,7 @@ class wl_cursor_cursor_handler : public cursor_handler {
   public:
     wl_cursor_cursor_handler(waydroid_hwc_composer_device_1 *pdev);
 
-    void set_cursor(display *display) const;
+    void set_cursor(display *display);
     int apply_cursor(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index) override;
     int reset_cursor(waydroid_hwc_composer_device_1 *pdev) override;
     int on_cursor_enter(display *display) override;

@@ -85,11 +85,9 @@ Return<void> WaydroidWindow::setPointerCapture(const hidl_string& packageName, b
                     zwp_relative_pointer_v1_add_listener(mDisplay->relative_pointer, &relative_pointer_listener, mDisplay);
                 }
             } else if (!enabled && window->locked_pointer != nullptr) {
-                zwp_locked_pointer_v1_destroy(window->locked_pointer);
                 window->locked_pointer = nullptr;
 
-                if (!std::any_of(mDisplay->windows.begin(), mDisplay->windows.end(), [](auto& pair){ return pair.second->locked_pointer; })) {
-                    zwp_relative_pointer_v1_destroy(mDisplay->relative_pointer);
+                if (!std::any_of(mDisplay->windows.begin(), mDisplay->windows.end(), [](auto& pair){ return pair.second->locked_pointer != nullptr; })) {
                     mDisplay->relative_pointer = nullptr;
                 }
             }
@@ -120,7 +118,6 @@ Return<void> WaydroidWindow::setIdleInhibit(const hidl_string& task, bool enable
                         mDisplay->idle_manager,
                         window->surface);
             } else if (!enabled && window->idle_inhibitor != nullptr) {
-                zwp_idle_inhibitor_v1_destroy(window->idle_inhibitor);
                 window->idle_inhibitor = nullptr;
             }
         }

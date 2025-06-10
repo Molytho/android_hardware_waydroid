@@ -885,7 +885,7 @@ wl_cursor_cursor_handler::wl_cursor_cursor_handler(waydroid_hwc_composer_device_
     }
 }
 
-void wl_cursor_cursor_handler::set_cursor(display* display) const {
+void wl_cursor_cursor_handler::set_cursor(display* display) {
     assert(display->pointer);
     wl_pointer_set_cursor (display->pointer, display->pointer_enter_serial,
                           cursor_surface_context.surface,

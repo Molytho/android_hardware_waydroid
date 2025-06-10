@@ -206,7 +206,7 @@ struct window {
 
     ~window();
 
-    static std::unique_ptr<window> create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color);
+    static std::shared_ptr<window> create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color);
 
     window::layer &get_next_layer();
     window::layer &create_new_layer();
@@ -222,7 +222,7 @@ struct window {
 };
 
 class open_windows {
-    using Collection = std::map<std::string, std::unique_ptr<window>>;
+    using Collection = std::map<std::string, std::shared_ptr<window>>;
     Collection windows;
 
   public:
@@ -265,7 +265,7 @@ class open_windows {
     }
 
     window *add(waydroid_hwc_composer_device_1 *pdev, const std::string& key, const std::string& aid, const std::string& tid, hwc_color_t color = {0, 0, 0, 255});
-    void add(const std::string& key, std::unique_ptr<window> window);
+    void add(const std::string& key, std::shared_ptr<window> window);
     void clear();
     void erase(const_iterator pos);
     void erase(const key_type& key);

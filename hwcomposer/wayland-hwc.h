@@ -377,6 +377,8 @@ struct display {
 
     bool isMaximized;
     sp<IWaydroidTask> task;
+
+    ~display();
 };
 
 void

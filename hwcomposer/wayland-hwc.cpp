@@ -1996,6 +1996,38 @@ static void* hwc_wayland_thread(void* data) {
     abort();
 }
 
+display::~display() {
+    pthread_kill(wayland_thread, SIGTERM);
+    pthread_join(wayland_thread, nullptr);
+
+    if (wm_base)
+        xdg_wm_base_destroy(wm_base);
+
+    if (shell)
+        wl_shell_destroy(shell);
+
+    if (compositor)
+        wl_compositor_destroy(compositor);
+
+    if (tablet_manager) {
+        for (struct zwp_tablet_tool_v2 *t : tablet_tools) {
+            zwp_tablet_tool_v2_destroy(t);
+        }
+        zwp_tablet_seat_v2_destroy(tablet_seat);
+        zwp_tablet_manager_v2_destroy(tablet_manager);
+    }
+
+    if (relative_pointer_manager)
+        zwp_relative_pointer_manager_v1_destroy(relative_pointer_manager);
+
+    if (pointer_constraints)
+        zwp_pointer_constraints_v1_destroy(pointer_constraints);
+
+    wl_registry_destroy(registry);
+    wl_display_flush(wl_display);
+    wl_display_disconnect(wl_display);
+}
+
 struct display *
 create_display(const char *gralloc)
 {
@@ -2045,35 +2077,5 @@ create_display(const char *gralloc)
 void
 destroy_display(struct display *display)
 {
-    pthread_kill(display->wayland_thread, SIGTERM);
-    pthread_join(display->wayland_thread, nullptr);
-
-    if (display->wm_base)
-        xdg_wm_base_destroy(display->wm_base);
-
-    if (display->shell)
-        wl_shell_destroy(display->shell);
-
-    if (display->compositor)
-        wl_compositor_destroy(display->compositor);
-
-    if (display->tablet_manager) {
-        for (struct zwp_tablet_tool_v2 *t : display->tablet_tools) {
-            zwp_tablet_tool_v2_destroy(t);
-        }
-        zwp_tablet_seat_v2_destroy(display->tablet_seat);
-        zwp_tablet_manager_v2_destroy(display->tablet_manager);
-    }
-
-    if (display->relative_pointer_manager)
-        zwp_relative_pointer_manager_v1_destroy(display->relative_pointer_manager);
-
-    if (display->pointer_constraints)
-        zwp_pointer_constraints_v1_destroy(display->pointer_constraints);
-
-    wl_registry_destroy(display->registry);
-    wl_display_flush(display->wl_display);
-    wl_display_disconnect(display->wl_display);
-
     delete display;
 }

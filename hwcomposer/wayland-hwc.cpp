@@ -428,10 +428,10 @@ static const struct wp_fractional_scale_v1_listener fractional_scale_listener = 
     .preferred_scale = fractional_scale_handle_preferred_scale
 };
 
-std::unique_ptr<window>
+std::shared_ptr<window>
 window::create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color)
 {
-    std::unique_ptr<window> window { new struct window() };
+    std::shared_ptr<window> window { new struct window() };
     if (!window)
         return nullptr;
 
@@ -1954,7 +1954,7 @@ window *open_windows::add(waydroid_hwc_composer_device_1 *pdev, const std::strin
     return window;
 }
 
-void open_windows::add(const std::string& key, std::unique_ptr<window> window) {
+void open_windows::add(const std::string& key, std::shared_ptr<window> window) {
     update([&](){
         auto res = windows.emplace(
             key,

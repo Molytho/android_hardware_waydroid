@@ -111,7 +111,9 @@ static void
 xdg_surface_handle_configure(void *data, struct xdg_surface *surface,
                  uint32_t serial)
 {
-    auto window = static_cast<struct window *>(data);
+    auto window = wayland::get_user_data<std::weak_ptr<struct window>>(data, surface).lock();
+    if (!window)
+        return;
 
     xdg_surface_ack_configure(surface, serial);
 
@@ -157,11 +159,14 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
 }
 
 static void
-xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *,
+xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
                               int32_t width, int32_t height,
                               struct wl_array *)
 {
-    struct window *window = (struct window *)data;
+    auto window = wayland::get_user_data<std::weak_ptr<struct window>>(data, toplevel).lock();
+    if (!window)
+        return;
+
     struct display *display = window->display;
 
     if (width == 0 || height == 0) {
@@ -180,9 +185,12 @@ static void
 send_key_event(display *data, uint32_t key, wl_keyboard_key_state state);
 
 static void
-xdg_toplevel_handle_close(void *data, struct xdg_toplevel *)
+xdg_toplevel_handle_close(void *data, struct xdg_toplevel *toplevel)
 {
-    struct window *window = (struct window *)data;
+    auto window = wayland::get_user_data<std::weak_ptr<struct window>>(data, toplevel).lock();
+    if (!window)
+        return;
+
     struct display *display = window->display;
 
     // simulate user input to restart idle timeout (TODO: find a better way)
@@ -223,9 +231,12 @@ shell_surface_ping(void *, struct wl_shell_surface *shell_surface, uint32_t seri
 }
 
 void
-shell_surface_configure(void *data, struct wl_shell_surface *, uint32_t, int32_t width, int32_t height)
+shell_surface_configure(void *data, struct wl_shell_surface *shell_surface, uint32_t, int32_t width, int32_t height)
 {
-    struct window *window = (struct window *)data;
+    auto window = wayland::get_user_data<std::weak_ptr<struct window>>(data, shell_surface).lock();
+    if (!window)
+        return;
+
     struct display *display = window->display;
 
     if (width != 0 && height != 0) {
@@ -444,17 +455,16 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
         window->xdg_surface =
                 xdg_wm_base_get_xdg_surface(display->wm_base, window->surface);
         assert(window->xdg_surface);
-        xdg_surface_add_listener(window->xdg_surface,
-                                     &xdg_surface_listener, window.get());
+        window->xdg_surface.add_listener(xdg_surface_listener, display->user_data_repository, window);
 
         window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
         assert(window->xdg_toplevel);
-        xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener, window.get());
+        window->xdg_toplevel.add_listener(xdg_toplevel_listener, display->user_data_repository, window);
     } else if (display->shell) {
         window->shell_surface =
             wl_shell_get_shell_surface(display->shell, window->surface);
         assert(window->shell_surface);
-        wl_shell_surface_add_listener(window->shell_surface, &shell_surface_listener, window.get());
+        window->shell_surface.add_listener(shell_surface_listener, display->user_data_repository, window);
         wl_shell_surface_set_toplevel(window->shell_surface);
     } else {
         abort();
@@ -482,24 +492,21 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
     } while (!window->configured);
 
     if (calibrating) {
-        wp_fractional_scale_v1* fs = nullptr;
+        wp::fractional_scale_v1<struct display *> fs;
         if (display->fractional_scale_manager) {
             // We only support one global scale
             fs = wp_fractional_scale_manager_v1_get_fractional_scale(
                     display->fractional_scale_manager, window->surface);
-            wp_fractional_scale_v1_add_listener(fs, &fractional_scale_listener, display);
+            fs.add_listener(fractional_scale_listener, display->user_data_repository, display);
         }
         if (fs || (!display->height || !display->width)) {
             // Some compositors fail to give us a window size or scale without a buffer attached
             // See: https://github.com/swaywm/sway/issues/2176
             // Try second configure event, with buffer attached
-            struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
+            wl::buffer<> buf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
             wl_surface_attach(window->surface, buf, 0, 0);
             wl_surface_commit(window->surface);
             wl_display_roundtrip(display->wl_display);
-        }
-        if (fs) {
-            wp_fractional_scale_v1_destroy(fs);
         }
 
         // If after all of this we still did not receive a proper configure event,
@@ -1236,7 +1243,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
         d->reverseScroll = property_get_bool("persist.waydroid.reverse_scrolling", false);
         mkfifo(INPUT_PIPE_NAME[INPUT_POINTER], S_IRWXO | S_IRWXG | S_IRWXU);
         chown(INPUT_PIPE_NAME[INPUT_POINTER], 1000, 1000);
-        wl_pointer_add_listener(d->pointer, &pointer_listener, d);
+        d->pointer.add_listener(pointer_listener, d->user_data_repository, d);
     } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && d->pointer) {
         remove(INPUT_PIPE_NAME[INPUT_POINTER]);
         d->pointer = nullptr;
@@ -1247,7 +1254,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
         d->input_fd[INPUT_KEYBOARD] = -1;
         mkfifo(INPUT_PIPE_NAME[INPUT_KEYBOARD], S_IRWXO | S_IRWXG | S_IRWXU);
         chown(INPUT_PIPE_NAME[INPUT_KEYBOARD], 1000, 1000);
-        wl_keyboard_add_listener(d->keyboard, &keyboard_listener, d);
+        d->keyboard.add_listener(keyboard_listener, d->user_data_repository, d);
     } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && d->keyboard) {
         remove(INPUT_PIPE_NAME[INPUT_KEYBOARD]);
         d->keyboard = nullptr;
@@ -1260,8 +1267,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
         chown(INPUT_PIPE_NAME[INPUT_TOUCH], 1000, 1000);
         for (int i = 0; i < MAX_TOUCHPOINTS; i++)
             d->touch_id[i] = -1;
-        wl_touch_set_user_data(d->touch, d);
-        wl_touch_add_listener(d->touch, &touch_listener, d);
+        d->touch.add_listener(touch_listener, d->user_data_repository, d);
     } else if (!(caps & WL_SEAT_CAPABILITY_TOUCH) && d->touch) {
         remove(INPUT_PIPE_NAME[INPUT_TOUCH]);
         d->touch = nullptr;
@@ -1738,7 +1744,7 @@ static void tablet_seat_handle_add_tool(void *data, struct zwp_tablet_seat_v2 *,
 
     struct display *d = (struct display*)data;
     d->tablet_tools.push_back(tool);
-    zwp_tablet_tool_v2_add_listener(tool, &tablet_tool_listener, d);
+    d->tablet_tools.back().add_listener(tablet_tool_listener, d->user_data_repository, d);
     ALOGI("Added tablet tool");
 }
 
@@ -1754,7 +1760,7 @@ static void add_tablet_seat(struct display *d) {
     chown(INPUT_PIPE_NAME[INPUT_TABLET], 1000, 1000);
 
     d->tablet_seat = zwp_tablet_manager_v2_get_tablet_seat(d->tablet_manager, d->seat);
-    zwp_tablet_seat_v2_add_listener(d->tablet_seat, &tablet_seat_listener, d);
+    d->tablet_seat.add_listener(tablet_seat_listener, d->user_data_repository, d);
 }
 
 static void
@@ -1774,14 +1780,14 @@ registry_handle_global(void *data, struct wl_registry *registry,
     } else if (strcmp(interface, "xdg_wm_base") == 0) {
         d->wm_base = (struct xdg_wm_base*)wl_registry_bind(registry,
                 id, &xdg_wm_base_interface, 1);
-        xdg_wm_base_add_listener(d->wm_base, &xdg_wm_base_listener, d);
+        d->wm_base.add_listener(xdg_wm_base_listener, d->user_data_repository, d);
     } else if(strcmp(interface, "wl_shell") == 0) {
         d->shell = (struct wl_shell *)wl_registry_bind(
                 registry, id, &wl_shell_interface, 1);
     } else if (strcmp(interface, "wl_seat") == 0) {
         d->seat = (struct wl_seat*)wl_registry_bind(registry, id,
                 &wl_seat_interface, std::min(version, (uint32_t)WL_POINTER_AXIS_SOURCE_SINCE_VERSION));
-        wl_seat_add_listener(d->seat, &seat_listener, d);
+        d->seat.add_listener(seat_listener, d->user_data_repository, d);
         if (d->tablet_manager && !d->tablet_seat)
             add_tablet_seat(d);
         if (d->data_device_manager && !d->data_device)
@@ -1792,15 +1798,14 @@ registry_handle_global(void *data, struct wl_registry *registry,
     } else if (strcmp(interface, "wl_output") == 0) {
         d->output = (struct wl_output*)wl_registry_bind(registry, id,
                 &wl_output_interface, std::min(version, 3U));
-        wl_output_add_listener(d->output, &output_listener, d);
+        d->output.add_listener(output_listener, d->user_data_repository, d);
         wl_display_roundtrip(d->wl_display);
     } else if (strcmp(interface, "wp_presentation") == 0) {
         bool no_presentation = property_get_bool("persist.waydroid.no_presentation", false);
         if (!no_presentation) {
             d->presentation = (struct wp_presentation*)wl_registry_bind(registry, id,
                     &wp_presentation_interface, 1);
-            wp_presentation_add_listener(d->presentation,
-                    &presentation_listener, d);
+            d->presentation.add_listener(presentation_listener, d->user_data_repository, d);
         }
     } else if (strcmp(interface, "wp_viewporter") == 0) {
         d->viewporter = (struct wp_viewporter*)wl_registry_bind(registry, id,
@@ -1815,7 +1820,7 @@ registry_handle_global(void *data, struct wl_registry *registry,
             return;
         d->dmabuf = (struct zwp_linux_dmabuf_v1*)wl_registry_bind(registry, id,
                 &zwp_linux_dmabuf_v1_interface, 3);
-        zwp_linux_dmabuf_v1_add_listener(d->dmabuf, &dmabuf_listener, d);
+        d->dmabuf.add_listener(dmabuf_listener, d->user_data_repository, d);
     } else if (strcmp(interface, "zwp_tablet_manager_v2") == 0) {
         d->tablet_manager = (struct zwp_tablet_manager_v2 *)wl_registry_bind(registry, id,
                 &zwp_tablet_manager_v2_interface, 1);
@@ -1969,8 +1974,7 @@ create_display(const char *gralloc)
     chown("/dev/input", 1000, 1000);
 
     display->registry = wl_display_get_registry(display->wl_display);
-    wl_registry_add_listener(display->registry,
-                 &registry_listener, display);
+    display->registry.add_listener(registry_listener, display->user_data_repository, display);
     wl_display_roundtrip(display->wl_display);
 
     if (pthread_create(&display->wayland_thread, nullptr, hwc_wayland_thread, display->wl_display) != 0) {

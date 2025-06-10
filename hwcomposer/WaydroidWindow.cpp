@@ -82,7 +82,7 @@ Return<void> WaydroidWindow::setPointerCapture(const hidl_string& packageName, b
                 if (mDisplay->relative_pointer == nullptr) {
                     mDisplay->relative_pointer = zwp_relative_pointer_manager_v1_get_relative_pointer(
                             mDisplay->relative_pointer_manager, mDisplay->pointer);
-                    zwp_relative_pointer_v1_add_listener(mDisplay->relative_pointer, &relative_pointer_listener, mDisplay);
+                    mDisplay->relative_pointer.add_listener(relative_pointer_listener, mDisplay->user_data_repository, mDisplay);
                 }
             } else if (!enabled && window->locked_pointer != nullptr) {
                 window->locked_pointer = nullptr;

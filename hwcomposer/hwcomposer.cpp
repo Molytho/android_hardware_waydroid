@@ -471,7 +471,7 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
         }
         wl_surface_commit(window->surface);
     }
-    wl_display_flush(pdev->display->display);
+    wl_display_flush(pdev->display->wl_display);
 
     sw_sync_timeline_inc(pdev->timeline_fd, 1);
     contents->retireFenceFd = sw_sync_fence_create(pdev->timeline_fd, "hwc_contents_release", ++pdev->next_sync_point);

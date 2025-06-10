@@ -293,7 +293,7 @@ struct cursor_handler {
 struct display {
     pthread_t wayland_thread; // constant after init
 
-    struct wl_display *display;
+    struct wl_display *wl_display;
     struct wl_registry *registry;
     struct wl_compositor *compositor;
     struct wl_subcompositor *subcompositor;

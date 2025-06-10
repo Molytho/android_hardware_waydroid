@@ -386,7 +386,7 @@ void window::minimize() {
     if (xdg_toplevel) {
         xdg_toplevel_set_minimized(xdg_toplevel);
         wl_surface_commit(surface); // unclear if this is required
-        wl_display_flush(display->display);
+        wl_display_flush(display->wl_display);
     }
 }
 
@@ -412,7 +412,7 @@ window::~window() {
         }
     }
 
-    wl_display_flush(display->display);
+    wl_display_flush(display->wl_display);
 }
 
 static void fractional_scale_handle_preferred_scale(void *data, struct wp_fractional_scale_v1 *,
@@ -502,7 +502,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
     wl_surface_commit(window->surface);
     // Wait for first configure event
     do {
-        wl_display_roundtrip(display->display);
+        wl_display_roundtrip(display->wl_display);
     } while (!window->configured);
 
     if (calibrating) {
@@ -520,7 +520,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
             struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
             wl_surface_attach(window->surface, buf, 0, 0);
             wl_surface_commit(window->surface);
-            wl_display_roundtrip(display->display);
+            wl_display_roundtrip(display->wl_display);
         }
         if (fs) {
             wp_fractional_scale_v1_destroy(fs);
@@ -1853,7 +1853,7 @@ registry_handle_global(void *data, struct wl_registry *registry,
         d->output = (struct wl_output*)wl_registry_bind(registry, id,
                 &wl_output_interface, std::min(version, 3U));
         wl_output_add_listener(d->output, &output_listener, d);
-        wl_display_roundtrip(d->display);
+        wl_display_roundtrip(d->wl_display);
     } else if (strcmp(interface, "wp_presentation") == 0) {
         bool no_presentation = property_get_bool("persist.waydroid.no_presentation", false);
         if (!no_presentation) {
@@ -2009,10 +2009,10 @@ create_display(const char *gralloc)
     display->refresh = 0;
     display->isMaximized = true;
     display->supports_cursor_viewport = true;
-    display->display = wl_display_connect(NULL);
+    display->wl_display = wl_display_connect(NULL);
     ALOGI("WAYLAND_DISPLAY: %s", getenv("WAYLAND_DISPLAY"));
     ALOGI("XDG_RUNTIME_DIR: %s", getenv("XDG_RUNTIME_DIR"));
-    if (!display->display) {
+    if (!display->wl_display) {
         ALOGE("Couldn't open Wayland display.");
         return NULL;
     }
@@ -2023,14 +2023,14 @@ create_display(const char *gralloc)
     mkdir("/dev/input", S_IRWXO | S_IRWXG | S_IRWXU);
     chown("/dev/input", 1000, 1000);
 
-    display->registry = wl_display_get_registry(display->display);
+    display->registry = wl_display_get_registry(display->wl_display);
     wl_registry_add_listener(display->registry,
                  &registry_listener, display);
-    wl_display_roundtrip(display->display);
+    wl_display_roundtrip(display->wl_display);
 
-    if (pthread_create(&display->wayland_thread, nullptr, hwc_wayland_thread, display->display) != 0) {
+    if (pthread_create(&display->wayland_thread, nullptr, hwc_wayland_thread, display->wl_display) != 0) {
         ALOGE("Couldn't create wayland thread");
-        wl_display_disconnect(display->display);
+        wl_display_disconnect(display->wl_display);
         sem_destroy(&display->egl_go);
         sem_destroy(&display->egl_done);
         return nullptr;
@@ -2070,8 +2070,8 @@ destroy_display(struct display *display)
         zwp_pointer_constraints_v1_destroy(display->pointer_constraints);
 
     wl_registry_destroy(display->registry);
-    wl_display_flush(display->display);
-    wl_display_disconnect(display->display);
+    wl_display_flush(display->wl_display);
+    wl_display_disconnect(display->wl_display);
 
     delete display;
 }

@@ -75,7 +75,7 @@ static void read_selection(struct display *display, struct wl_data_offer *offer,
      * We need to make sure our request is sent to the compositor, otherwise the source client won’t send any data.
      * The blocking read calls stall the Wayland event loop.
      */
-    wl_display_roundtrip(display->display);
+    wl_display_roundtrip(display->wl_display);
 
     // Read the clipboard contents
     display->clipboard.clear();

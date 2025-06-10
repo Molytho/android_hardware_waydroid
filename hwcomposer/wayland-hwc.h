@@ -189,9 +189,9 @@ struct window {
 
     std::vector<layer> layers;
 
-    wl::shell_surface<> shell_surface;
-    xdg::surface<> xdg_surface;
-    xdg::toplevel<> xdg_toplevel;
+    wl::shell_surface<std::weak_ptr<window>> shell_surface;
+    xdg::surface<std::weak_ptr<window>> xdg_surface;
+    xdg::toplevel<std::weak_ptr<window>> xdg_toplevel;
 
     zwp::locked_pointer_v1<> locked_pointer;
     zwp::idle_inhibitor_v1 idle_inhibitor;
@@ -299,30 +299,32 @@ struct display {
     pthread_t wayland_thread; // constant after init
 
     wl::display wl_display;
-    wl::registry<> registry;
+    wl::registry<struct display *> registry;
     wl::compositor compositor;
     wl::subcompositor subcompositor;
-    wl::seat<> seat;
+    wl::seat<struct display *> seat;
     wl::shell shell;
     wl::shm<> shm;
-    wl::pointer<> pointer;
-    wl::keyboard<> keyboard;
-    wl::touch<> touch;
-    wl::output<> output;
-    wp::presentation<> presentation;
+    wl::pointer<struct display *> pointer;
+    wl::keyboard<struct display *> keyboard;
+    wl::touch<struct display *> touch;
+    wl::output<struct display *> output;
+    wp::presentation<struct display *> presentation;
     wp::viewporter viewporter;
     wayland::android::wlegl android_wlegl;
-    zwp::linux_dmabuf_v1<> dmabuf;
-    xdg::wm_base<> wm_base;
+    zwp::linux_dmabuf_v1<struct display *> dmabuf;
+    xdg::wm_base<struct display *> wm_base;
     zwp::tablet_manager_v2 tablet_manager;
-    zwp::tablet_seat_v2<> tablet_seat;
+    zwp::tablet_seat_v2<struct display *> tablet_seat;
     zwp::pointer_constraints_v1 pointer_constraints;
     zwp::relative_pointer_manager_v1 relative_pointer_manager;
-    zwp::relative_pointer_v1<> relative_pointer;
+    zwp::relative_pointer_v1<struct display *> relative_pointer;
     zwp::idle_inhibit_manager_v1 idle_manager;
     wp::fractional_scale_manager_v1 fractional_scale_manager;
     wl::data_device_manager data_device_manager;
     wl::data_device<> data_device;
+
+    wayland::user_data_repository user_data_repository;
 
     int system_version;
     GrallocType gtype;
@@ -345,7 +347,7 @@ struct display {
     std::map<int, struct wl_surface *> touch_surfaces;
     struct wl_surface *pointer_surface;
     struct wl_surface *tablet_surface;
-    std::list<zwp::tablet_tool_v2<>> tablet_tools;
+    std::list<zwp::tablet_tool_v2<struct display *>> tablet_tools;
     std::map<struct zwp_tablet_tool_v2 *, uint16_t> tablet_tools_evt;
     uint32_t keyboard_enter_serial;
     std::string clipboard;

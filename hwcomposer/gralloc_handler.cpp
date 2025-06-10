@@ -91,11 +91,11 @@ std::unique_ptr<buffer> create_shm_wl_buffer(display *display, const buffer_meta
         close(fd);
         return nullptr;
     }
-    struct wl_shm_pool *pool = wl_shm_create_pool(display->shm, fd, size);
-    buf->wl_buffer = wl_shm_pool_create_buffer(pool, 0, metadata.width, metadata.height, shm_stride, shm_format);
-    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, nullptr);
-    wl_shm_pool_destroy(pool);
+    wl::shm_pool pool = wl_shm_create_pool(display->shm, fd, size);
     close(fd);
+
+    buf->wl_buffer = wl_shm_pool_create_buffer(pool, 0, metadata.width, metadata.height, shm_stride, shm_format);
+    buf->wl_buffer.add_listener(buffer_listener);
 
     return buf;
 }
@@ -178,12 +178,12 @@ std::unique_ptr<buffer> create_dmabuf_wl_buffer(display *display, const buffer_m
     }
     assert(drm_format >= 0);
 
-    zwp_linux_buffer_params_v1 *params = zwp_linux_dmabuf_v1_create_params(display->dmabuf);
+    zwp::linux_buffer_params_v1<> params = zwp_linux_dmabuf_v1_create_params(display->dmabuf);
     zwp_linux_buffer_params_v1_add(params, prime_fd, 0, offset, byte_stride, modifier >> 32, modifier & 0xffffffff);
-    zwp_linux_buffer_params_v1_add_listener(params, &params_listener, nullptr);
+    params.add_listener(params_listener);
 
     buf->wl_buffer = zwp_linux_buffer_params_v1_create_immed(params, buf->metadata.width, buf->metadata.height, drm_format, 0);
-    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, nullptr);
+    buf->wl_buffer.add_listener(buffer_listener);
 
     return buf;
 }
@@ -199,7 +199,7 @@ std::unique_ptr<buffer> create_android_wl_buffer(display *display, const buffer_
     wl_array_init(&ints);
     int *the_ints = (int *)wl_array_add(&ints, handle->numInts * sizeof(int));
     memcpy(the_ints, handle->data + handle->numFds, handle->numInts * sizeof(int));
-    android_wlegl_handle *wlegl_handle = android_wlegl_create_handle(display->android_wlegl, handle->numFds, &ints);
+    wayland::android::wlegl_handle wlegl_handle = android_wlegl_create_handle(display->android_wlegl, handle->numFds, &ints);
     wl_array_release(&ints);
 
     for (int i = 0; i < handle->numFds; i++) {
@@ -207,9 +207,7 @@ std::unique_ptr<buffer> create_android_wl_buffer(display *display, const buffer_
     }
 
     buf->wl_buffer = android_wlegl_create_buffer(display->android_wlegl, buf->metadata.width, buf->metadata.height, buf->metadata.pixel_stride, metadata.format, GRALLOC_USAGE_HW_RENDER, wlegl_handle);
-    android_wlegl_handle_destroy(wlegl_handle);
-
-    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, nullptr);
+    buf->wl_buffer.add_listener(buffer_listener);
 
     return buf;
 }

@@ -68,24 +68,11 @@
 
 #include "gralloc_handler.h"
 
-#include <wayland-client.h>
-#include <wayland-android-client-protocol.h>
-#include "linux-dmabuf-unstable-v1-client-protocol.h"
-#include "viewporter-client-protocol.h"
-#include "presentation-time-client-protocol.h"
-#include "xdg-shell-client-protocol.h"
-#include "tablet-unstable-v2-client-protocol.h"
-#include "pointer-constraints-unstable-v1-client-protocol.h"
-#include "relative-pointer-unstable-v1-client-protocol.h"
-#include "idle-inhibit-unstable-v1-client-protocol.h"
-#include "fractional-scale-v1-client-protocol.h"
-
 using ::android::hardware::hidl_string;
 
 struct buffer;
 
 buffer::~buffer() {
-    wl_buffer_destroy(wl_buffer);
     if (isShm)
         munmap(shm_data, size);
 }
@@ -389,19 +376,11 @@ void window::minimize() {
 }
 
 window::~window() {
-    if (xdg_toplevel)
-        xdg_toplevel_destroy(xdg_toplevel);
-    if (xdg_surface)
-        xdg_surface_destroy(xdg_surface);
-    if (shell_surface)
-        wl_shell_surface_destroy(shell_surface);
-    if (bg_buffer)
-        wl_buffer_destroy(bg_buffer);
-    if (input_region)
-        wl_region_destroy(input_region);
-
-    layers.clear();
     if (destroy_background_objects) {
+        // Those need to be destroyed before the background surface
+        xdg_toplevel.reset();
+        xdg_surface.reset();
+        shell_surface.reset();
         if (viewport)
             wp_viewport_destroy(viewport);
         if (surface) {
@@ -409,8 +388,6 @@ window::~window() {
             wl_surface_destroy(surface);
         }
     }
-
-    wl_display_flush(display->wl_display);
 }
 
 static void fractional_scale_handle_preferred_scale(void *data, struct wp_fractional_scale_v1 *,
@@ -442,7 +419,6 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
         window->viewport = wp_viewporter_get_viewport(display->viewporter, window->surface);
     window->taskID = std::move(taskID);
     window->destroy_background_objects = true;
-    window->bg_buffer = nullptr;
 
     int fd = syscall(SYS_memfd_create, "buffer", 0);
     ftruncate(fd, 4);
@@ -452,7 +428,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
         close(fd);
         exit(1);
     }
-    struct wl_shm_pool *pool = wl_shm_create_pool(display->shm, fd, 4);
+    wl::shm_pool pool = wl_shm_create_pool(display->shm, fd, 4);
     close(fd);
 
     // Is this the first window created?
@@ -539,19 +515,17 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
     if (display->wm_base)
         xdg_surface_set_window_geometry(window->xdg_surface, 0, 0, display->width, display->height);
 
-    struct wl_region *region = wl_compositor_create_region(display->compositor);
+    wl::region region = wl_compositor_create_region(display->compositor);
     if (color.a == 0) {
         wl_surface_set_input_region(window->surface, region);
-        if (display->system_version >= 33)
-            window->input_region = region;
-        else
-            wl_region_destroy(region);
-    }
-    if (color.a == 255) {
+        if (display->system_version >= 33) {
+            window->input_region = std::move(region);
+        }
+    } else if (color.a == 255) {
         wl_region_add(region, 0, 0, display->width, display->height);
         wl_surface_set_opaque_region(window->surface, region);
-        wl_region_destroy(region);
     }
+    region.reset();
 
     // TODO: Fix background when viewport is not supported
     // No subsurface background for us!
@@ -559,8 +533,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
         !display->viewporter ||
         property_get_bool("persist.waydroid.no_background_subsurface", false)) {
         window->destroy_background_objects = false;
-        window->layers.emplace_back(window->surface, window->viewport);
-        wl_shm_pool_destroy(pool);
+        window->layers.emplace_back(wl::surface<>(window->surface), wp::viewport(window->viewport));
         wl_surface_commit(window->surface);
         return window;
     } else if (!use_subsurfaces) {
@@ -574,7 +547,6 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
     uint32_t *buf = (uint32_t*)shm_data;
     *buf = color.a << 24 | color.r << 16 | color.g << 8 | color.b;
     window->bg_buffer = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
 
     wl_surface_attach(window->surface, window->bg_buffer, 0, 0);
     wl_surface_damage(window->surface, 0, 0, INT32_MAX, INT32_MAX);
@@ -585,48 +557,19 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
     return window;
 }
 
-surface_context::surface_context(wl_surface *surface, wp_viewport *viewport) : surface(surface), viewport(viewport) {}
-surface_context::~surface_context() {
-    if (viewport)
-        wp_viewport_destroy(viewport);
-    if (surface)
-        wl_surface_destroy(surface);
-}
-surface_context::surface_context(surface_context&& other) : surface(other.surface), viewport(other.viewport) {
-    other.surface = nullptr;
-    other.viewport = nullptr;
-}
+surface_context::surface_context(wl::surface<> surface, wp::viewport viewport) : surface(std::move(surface)), viewport(std::move(viewport)) {}
+surface_context::surface_context(surface_context&& other) : surface(std::move(other.surface)), viewport(std::move(other.viewport)) {}
 surface_context& surface_context::operator=(surface_context&& rhs) {
-    if (viewport)
-        wp_viewport_destroy(viewport);
-    if (surface)
-        wl_surface_destroy(surface);
-
-    surface = rhs.surface;
-    viewport = rhs.viewport;
-
-    rhs.surface = nullptr;
-    rhs.viewport = nullptr;
-
+    surface = std::move(rhs.surface);
+    viewport = std::move(rhs.viewport);
     return *this;
 }
 
-window::layer::layer(wl_surface *surface, wp_viewport *viewport, wl_subsurface *subsurface) : surface_context(surface, viewport), subsurface(subsurface) {}
-window::layer::~layer() {
-    if (subsurface)
-        wl_subsurface_destroy(subsurface);
-}
-window::layer::layer(window::layer&& other) : surface_context(std::move(static_cast<surface_context&>(other))), subsurface(other.subsurface) {
-    other.subsurface = nullptr;
-}
+window::layer::layer(wl::surface<> surface, wp::viewport viewport, wl::subsurface subsurface) : surface_context(std::move(surface), std::move(viewport)), subsurface(std::move(subsurface)) {}
+window::layer::layer(window::layer&& other) : surface_context(std::move(static_cast<surface_context&>(other))), subsurface(std::move(other.subsurface)) {}
 window::layer& window::layer::operator=(window::layer&& rhs) {
-    if (subsurface)
-        wl_subsurface_destroy(subsurface);
-    subsurface = rhs.subsurface;
-    rhs.subsurface = nullptr;
-
+    subsurface = std::move(rhs.subsurface);
     surface_context::operator=(std::move(rhs));
-
     return *this;
 }
 
@@ -646,13 +589,13 @@ window::layer& window::get_next_layer() {
 }
 
 window::layer& window::create_new_layer() {
-    wl_surface *surface = wl_compositor_create_surface(display->compositor);
-    wl_subsurface *subsurface = wl_subcompositor_get_subsurface(display->subcompositor, surface, this->surface);
-    wp_viewport *viewport = nullptr;
+    wl::surface<> surface = wl_compositor_create_surface(display->compositor);
+    wl::subsurface subsurface = wl_subcompositor_get_subsurface(display->subcompositor, surface, this->surface);
+    wp::viewport viewport;
     if (display->viewporter)
         viewport = wp_viewporter_get_viewport(display->viewporter, surface);
 
-    return layers.emplace_back(surface, viewport, subsurface);
+    return layers.emplace_back(std::move(surface), std::move(viewport), std::move(subsurface));
 }
 
 static int
@@ -1295,8 +1238,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
         wl_pointer_add_listener(d->pointer, &pointer_listener, d);
     } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && d->pointer) {
         remove(INPUT_PIPE_NAME[INPUT_POINTER]);
-        wl_pointer_destroy(d->pointer);
-        d->pointer = NULL;
+        d->pointer = nullptr;
     }
 
     if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !d->keyboard) {
@@ -1307,8 +1249,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
         wl_keyboard_add_listener(d->keyboard, &keyboard_listener, d);
     } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && d->keyboard) {
         remove(INPUT_PIPE_NAME[INPUT_KEYBOARD]);
-        wl_keyboard_destroy(d->keyboard);
-        d->keyboard = NULL;
+        d->keyboard = nullptr;
     }
 
     if ((caps & WL_SEAT_CAPABILITY_TOUCH) && !d->touch) {
@@ -1322,8 +1263,7 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
         wl_touch_add_listener(d->touch, &touch_listener, d);
     } else if (!(caps & WL_SEAT_CAPABILITY_TOUCH) && d->touch) {
         remove(INPUT_PIPE_NAME[INPUT_TOUCH]);
-        wl_touch_destroy(d->touch);
-        d->touch = NULL;
+        d->touch = nullptr;
     }
 }
 
@@ -1999,33 +1939,6 @@ static void* hwc_wayland_thread(void* data) {
 display::~display() {
     pthread_kill(wayland_thread, SIGTERM);
     pthread_join(wayland_thread, nullptr);
-
-    if (wm_base)
-        xdg_wm_base_destroy(wm_base);
-
-    if (shell)
-        wl_shell_destroy(shell);
-
-    if (compositor)
-        wl_compositor_destroy(compositor);
-
-    if (tablet_manager) {
-        for (struct zwp_tablet_tool_v2 *t : tablet_tools) {
-            zwp_tablet_tool_v2_destroy(t);
-        }
-        zwp_tablet_seat_v2_destroy(tablet_seat);
-        zwp_tablet_manager_v2_destroy(tablet_manager);
-    }
-
-    if (relative_pointer_manager)
-        zwp_relative_pointer_manager_v1_destroy(relative_pointer_manager);
-
-    if (pointer_constraints)
-        zwp_pointer_constraints_v1_destroy(pointer_constraints);
-
-    wl_registry_destroy(registry);
-    wl_display_flush(wl_display);
-    wl_display_disconnect(wl_display);
 }
 
 struct display *
@@ -2064,7 +1977,7 @@ create_display(const char *gralloc)
 
     if (pthread_create(&display->wayland_thread, nullptr, hwc_wayland_thread, display->wl_display) != 0) {
         ALOGE("Couldn't create wayland thread");
-        wl_display_disconnect(display->wl_display);
+        display->wl_display = nullptr;
         sem_destroy(&display->egl_go);
         sem_destroy(&display->egl_done);
         return nullptr;

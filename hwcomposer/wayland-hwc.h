@@ -50,8 +50,6 @@
 #include <hardware/hwcomposer.h>
 #include <cutils/properties.h>
 #include <vendor/waydroid/task/1.0/IWaydroidTask.h>
-#include <wayland-util.h>
-#include <wayland-client.h>
 
 #define EGL_EGLEXT_PROTOTYPES
 #include <EGL/egl.h>
@@ -61,8 +59,16 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <wayland-util.h>
+#include "wayland/wrapper.h"
+
 using ::android::sp;
 using ::vendor::waydroid::task::V1_0::IWaydroidTask;
+
+namespace wl = ::wayland::wl;
+namespace wp = ::wayland::wp;
+namespace xdg = ::wayland::xdg;
+namespace zwp = ::wayland::zwp;
 
 enum {
     INPUT_TOUCH,
@@ -115,7 +121,7 @@ constexpr bool operator!=(const buffer_metadata &lhs, const buffer_metadata &rhs
 }
 
 struct buffer {
-    struct wl_buffer *wl_buffer;
+    wl::buffer<> wl_buffer;
 
     buffer_handle_t handle;
     buffer_metadata metadata;
@@ -141,12 +147,11 @@ enum class BufferTransform : int32_t {
 BufferTransform hwc_transform_to_buffer_transform(uint32_t hwc_transform);
 
 struct surface_context {
-    struct wl_surface *surface;
-    struct wp_viewport *viewport;
+    wl::surface<> surface;
+    wp::viewport viewport;
 
     surface_context() = default;
-    surface_context(wl_surface *surface, wp_viewport *viewport);
-    ~surface_context();
+    surface_context(wl::surface<> surface, wp::viewport viewport);
 
     surface_context(surface_context &&other);
     surface_context &operator=(surface_context &&rhs);
@@ -163,11 +168,9 @@ struct surface_context {
 
 struct window {
     struct layer : public surface_context {
-        struct wl_subsurface *subsurface;
+        wl::subsurface subsurface;
 
-        layer() = default;
-        layer(wl_surface *surface, wp_viewport *viewport, wl_subsurface *subsurface = nullptr);
-        ~layer();
+        layer(wl::surface<> surface, wp::viewport viewport, wl::subsurface subsurface = {});
 
         layer(layer &&other);
         layer &operator=(layer &&rhs);
@@ -177,20 +180,21 @@ struct window {
 
     struct display *display;
 
-    struct wl_shell_surface *shell_surface;
-    struct xdg_surface *xdg_surface;
-    struct xdg_toplevel *xdg_toplevel;
-
     /* Used for the background color */
+    // TODO: Make wayland object wrappers usable here
     bool destroy_background_objects;
     struct wl_surface *surface;
     struct wp_viewport *viewport;
-    struct wl_buffer *bg_buffer;
-
-    struct zwp_locked_pointer_v1 *locked_pointer;
-    struct zwp_idle_inhibitor_v1 *idle_inhibitor;
+    wl::buffer<> bg_buffer;
 
     std::vector<layer> layers;
+
+    wl::shell_surface<> shell_surface;
+    xdg::surface<> xdg_surface;
+    xdg::toplevel<> xdg_toplevel;
+
+    zwp::locked_pointer_v1<> locked_pointer;
+    zwp::idle_inhibitor_v1 idle_inhibitor;
 
     std::unique_ptr<buffer> snapshot_buffer;
 
@@ -200,7 +204,7 @@ struct window {
     std::atomic<bool> configured;
 
     // Reset every hwc_set cycle
-    struct wl_region* input_region;
+    wl::region input_region;
     int lastLayer;
     struct buffer *last_layer_buffer;
 
@@ -294,31 +298,31 @@ struct cursor_handler {
 struct display {
     pthread_t wayland_thread; // constant after init
 
-    struct wl_display *wl_display;
-    struct wl_registry *registry;
-    struct wl_compositor *compositor;
-    struct wl_subcompositor *subcompositor;
-    struct wl_seat *seat;
-    struct wl_shell *shell;
-    struct wl_shm *shm;
-    struct wl_pointer *pointer;
-    struct wl_keyboard *keyboard;
-    struct wl_touch *touch;
-    struct wl_output *output;
-    struct wp_presentation *presentation;
-    struct wp_viewporter *viewporter;
-    struct android_wlegl *android_wlegl;
-    struct zwp_linux_dmabuf_v1 *dmabuf;
-    struct xdg_wm_base *wm_base;
-    struct zwp_tablet_manager_v2* tablet_manager;
-    struct zwp_tablet_seat_v2 *tablet_seat;
-    struct zwp_pointer_constraints_v1 *pointer_constraints;
-    struct zwp_relative_pointer_manager_v1 *relative_pointer_manager;
-    struct zwp_relative_pointer_v1 *relative_pointer;
-    struct zwp_idle_inhibit_manager_v1 *idle_manager;
-    struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
-    struct wl_data_device_manager *data_device_manager;
-    struct wl_data_device *data_device;
+    wl::display wl_display;
+    wl::registry<> registry;
+    wl::compositor compositor;
+    wl::subcompositor subcompositor;
+    wl::seat<> seat;
+    wl::shell shell;
+    wl::shm<> shm;
+    wl::pointer<> pointer;
+    wl::keyboard<> keyboard;
+    wl::touch<> touch;
+    wl::output<> output;
+    wp::presentation<> presentation;
+    wp::viewporter viewporter;
+    wayland::android::wlegl android_wlegl;
+    zwp::linux_dmabuf_v1<> dmabuf;
+    xdg::wm_base<> wm_base;
+    zwp::tablet_manager_v2 tablet_manager;
+    zwp::tablet_seat_v2<> tablet_seat;
+    zwp::pointer_constraints_v1 pointer_constraints;
+    zwp::relative_pointer_manager_v1 relative_pointer_manager;
+    zwp::relative_pointer_v1<> relative_pointer;
+    zwp::idle_inhibit_manager_v1 idle_manager;
+    wp::fractional_scale_manager_v1 fractional_scale_manager;
+    wl::data_device_manager data_device_manager;
+    wl::data_device<> data_device;
 
     int system_version;
     GrallocType gtype;
@@ -341,7 +345,7 @@ struct display {
     std::map<int, struct wl_surface *> touch_surfaces;
     struct wl_surface *pointer_surface;
     struct wl_surface *tablet_surface;
-    std::list<struct zwp_tablet_tool_v2 *> tablet_tools;
+    std::list<zwp::tablet_tool_v2<>> tablet_tools;
     std::map<struct zwp_tablet_tool_v2 *, uint16_t> tablet_tools_evt;
     uint32_t keyboard_enter_serial;
     std::string clipboard;

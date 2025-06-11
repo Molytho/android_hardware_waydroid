@@ -121,7 +121,7 @@ namespace {
             buf = emplace_result.first->second.get();
         }
 
-        if (buf->isShm)
+        if (buf->is_shm())
             gralloc_handler.update_shm_buffer(pdev->display.get(), buf);
         return buf;
     }

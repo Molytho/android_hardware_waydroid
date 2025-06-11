@@ -67,22 +67,16 @@
 #include <cinttypes>
 #include <memory>
 
+#include "wayland/shm_pool.h"
 #include "gralloc_handler.h"
 #include "cursor_handler.h"
 
 using ::android::hardware::hidl_string;
 
-struct buffer;
-
-buffer::~buffer() {
-    if (isShm)
-        munmap(shm_data, size);
-}
-
 // Call me from egl_worker_thread only!
 void snapshot_inactive_app_window(struct display *display, struct window *window) {
     if (!window->layers[0].surface || !window->last_layer_buffer
-        || window->last_layer_buffer->isShm || window->snapshot_buffer) {
+        || window->last_layer_buffer->is_shm() || window->snapshot_buffer) {
         // Need a surface to draw and a non-SHM buffer to make snapshot from
         return;
     }
@@ -433,16 +427,10 @@ window::create(struct display *display, std::string appID, std::string taskID, h
     window->taskID = std::move(taskID);
     window->destroy_background_objects = true;
 
-    int fd = syscall(SYS_memfd_create, "buffer", 0);
-    ftruncate(fd, 4);
-    void *shm_data = mmap(NULL, 4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (shm_data == MAP_FAILED) {
-        ALOGE("mmap failed");
-        close(fd);
-        exit(1);
+    wayland::shm_pool shm_pool = wayland::shm_pool::create(display, "window::create", 4);
+    if (!shm_pool) {
+        return nullptr;
     }
-    wl::shm_pool pool = wl_shm_create_pool(display->shm, fd, 4);
-    close(fd);
 
     // Is this the first window created?
     bool calibrating = !display->height || !display->width;
@@ -500,7 +488,7 @@ window::create(struct display *display, std::string appID, std::string taskID, h
         // See: https://github.com/swaywm/sway/issues/2176
         // Some other compositors may refine the window size after a buffer is attached (Hyprland)
         // Try second configure event, with buffer attached
-        wl::buffer<> buf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
+        wl::buffer<> buf = wl_shm_pool_create_buffer(shm_pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
         wl_surface_attach(window->surface, buf, 0, 0);
         if (window->viewport && display->req_width && display->req_height)
             wp_viewport_set_destination(window->viewport, display->req_width, display->req_height);
@@ -548,9 +536,9 @@ window::create(struct display *display, std::string appID, std::string taskID, h
 
     window->create_new_layer();
 
-    uint32_t *buf = (uint32_t*)shm_data;
+    auto *buf = (uint32_t*)shm_pool.data();
     *buf = color.a << 24 | color.r << 16 | color.g << 8 | color.b;
-    window->bg_buffer = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
+    window->bg_buffer = wl_shm_pool_create_buffer(shm_pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
 
     wl_surface_attach(window->surface, window->bg_buffer, 0, 0);
     wl_surface_damage(window->surface, 0, 0, INT32_MAX, INT32_MAX);

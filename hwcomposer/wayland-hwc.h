@@ -392,5 +392,3 @@ snapshot_inactive_app_window(struct display *display, struct window *window);
 
 struct display *
 create_display(const char* gralloc);
-void
-destroy_display(struct display *display);

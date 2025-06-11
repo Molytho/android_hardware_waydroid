@@ -1988,9 +1988,3 @@ create_display(const char *gralloc)
     display->task = IWaydroidTask::getService();
     return display;
 }
-
-void
-destroy_display(struct display *display)
-{
-    delete display;
-}

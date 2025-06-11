@@ -28,10 +28,12 @@
 #include <hardware/hwcomposer.h>
 #include <atomic>
 #include <string>
-#include <map>
+#include <unordered_map>
+#include <thread>
 
 #include "wayland-hwc.h"
 #include "gralloc_handler.h"
+#include "resource_wrapper.h"
 
 struct waydroid_mode;
 
@@ -59,25 +61,33 @@ class wl_cursor_cursor_handler : public cursor_handler {
 };
 
 struct waydroid_hwc_composer_device_1 : hwc_composer_device_1_t {
-    const hwc_procs_t *procs;        // constant after init
-    pthread_t vsync_thread;          // constant after init
-    pthread_t binder_thread;         // constant after init
-    pthread_t egl_worker_thread;     // constant after init
-    int32_t vsync_period_ns;         // constant after init
-    struct display *display;         // constant after init
-    gralloc_handler gralloc_handler; // constant after init
-
-    std::map<std::string, std::vector<std::string>> blacklisted_apps;
+    const std::unordered_map<std::string, std::vector<std::string>> blacklisted_apps;
+    const gralloc_handler gralloc_handler;
+    const int32_t vsync_period_ns;
+    const bool should_compose;
+    const bool multi_windows;
 
     std::atomic<bool> vsync_callback_enabled;
-    std::atomic<uint64_t> last_vsync_ns;
+    std::atomic<int64_t> last_vsync_ns;
 
-    int timeline_fd;
+    const unique_fd timeline_fd;
     int next_sync_point;
-    bool should_compose;
-    bool multi_windows;
-
     std::unique_ptr<waydroid_mode> selected_mode;
+
+    const std::unique_ptr<display> display;
+
+    const hwc_procs_t *procs;
+
+    pthread_t vsync_thread;
+    pthread_t binder_thread;
+    pthread_t egl_worker_thread;
+
+    static std::unique_ptr<waydroid_hwc_composer_device_1> create();
+
+    ~waydroid_hwc_composer_device_1();
+
+  private:
+    waydroid_hwc_composer_device_1() = default;
 };
 
 int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, window *window);

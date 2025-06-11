@@ -103,11 +103,11 @@ namespace {
 
     buffer *get_wl_buffer(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1_t *layer, size_t pos) {
         const auto& gralloc_handler = pdev->gralloc_handler;
-        auto metadata = gralloc_handler.get_buffer_metadata(pdev->display, layer, pos);
+        auto metadata = gralloc_handler.get_buffer_metadata(pdev->display.get(), layer, pos);
         buffer *buf = find_cached_buffer(pdev, metadata, layer->handle);
 
         if (!buf) {
-            auto result = gralloc_handler.create_buffer(pdev->display, metadata, layer->handle);
+            auto result = gralloc_handler.create_buffer(pdev->display.get(), metadata, layer->handle);
             if (!result) {
                 ALOGE("failed to create a wayland buffer");
                 return nullptr;
@@ -118,11 +118,11 @@ namespace {
         }
 
         if (buf->isShm)
-            gralloc_handler.update_shm_buffer(pdev->display, buf);
+            gralloc_handler.update_shm_buffer(pdev->display.get(), buf);
         return buf;
     }
 
-    std::string property_get_string(const char *key, const char *default_value) {
+    std::string property_get_string(const char *key, const char *default_value = nullptr) {
         char property[PROPERTY_VALUE_MAX];
         int size = property_get(key, property, default_value);
         return std::string(property, size);
@@ -618,13 +618,7 @@ static int hwc_set_cursor_position_async(struct hwc_composer_device_1 *, int, in
 }
 
 static int hwc_close(hw_device_t* dev) {
-    auto *pdev = reinterpret_cast<waydroid_hwc_composer_device_1 *>(dev);
-
-    pdev->display->buffer_map.clear();
-
-    destroy_display(pdev->display);
-
-    delete pdev;
+    delete reinterpret_cast<waydroid_hwc_composer_device_1 *>(dev);
     return 0;
 }
 
@@ -639,7 +633,7 @@ static void* hwc_binder_thread(void* data) {
     setpriority(PRIO_PROCESS, 0, HAL_PRIORITY_URGENT_DISPLAY);
     configureRpcThreadpool(1, true /*callerWillJoin*/);
 
-    waydroidDisplay = new WaydroidDisplay(pdev->display);
+    waydroidDisplay = new WaydroidDisplay(pdev->display.get());
     if (waydroidDisplay == nullptr) {
         ALOGE("Can not create an instance of Waydroid Display HAL, exiting.");
         goto shutdown;
@@ -650,7 +644,7 @@ static void* hwc_binder_thread(void* data) {
         goto shutdown;
     }
 
-    waydroidWindow = new WaydroidWindow(pdev->display);
+    waydroidWindow = new WaydroidWindow(pdev->display.get());
     if (waydroidWindow == nullptr) {
         ALOGE("Can not create an instance of Waydroid Window HAL, exiting.");
         goto shutdown;
@@ -661,7 +655,7 @@ static void* hwc_binder_thread(void* data) {
         goto shutdown;
     }
 
-    waydroidClipboard = new WaydroidClipboard(pdev->display);
+    waydroidClipboard = new WaydroidClipboard(pdev->display.get());
     if (waydroidClipboard == nullptr) {
         ALOGE("Can not create an instance of Waydroid Clipboard HAL, exiting.");
         goto shutdown;
@@ -682,54 +676,13 @@ shutdown:
     return NULL;
 }
 
-static int hwc_open(const struct hw_module_t* module, const char* name,
+static int hwc_open(const struct hw_module_t*, const char* name,
                     struct hw_device_t** device) {
-    int ret = 0;
     char property[PROPERTY_VALUE_MAX];
 
-    if (strcmp(name, HWC_HARDWARE_COMPOSER)) {
+    if (strcmp(name, HWC_HARDWARE_COMPOSER) != 0) {
         ALOGE("%s called with bad name %s", __FUNCTION__, name);
         return -EINVAL;
-    }
-
-    waydroid_hwc_composer_device_1 *pdev = new waydroid_hwc_composer_device_1();
-    if (!pdev) {
-        ALOGE("%s failed to allocate dev", __FUNCTION__);
-        return -ENOMEM;
-    }
-
-    pdev->common.tag = HARDWARE_DEVICE_TAG;
-    pdev->common.version = HWC_DEVICE_API_VERSION_1_5;
-    pdev->common.module = const_cast<hw_module_t *>(module);
-    pdev->common.close = hwc_close;
-
-    pdev->prepare = hwc_prepare;
-    pdev->set = hwc_set;
-    pdev->eventControl = hwc_event_control;
-    pdev->setPowerMode = hwc_set_power_move;
-    pdev->query = hwc_query;
-    pdev->registerProcs = hwc_register_procs;
-    pdev->dump = nullptr;
-    pdev->getDisplayConfigs = hwc_get_display_configs;
-    pdev->getDisplayAttributes = hwc_get_display_attributes;
-    pdev->getActiveConfig = hwc_get_active_config;
-    pdev->setActiveConfig = hwc_set_active_config;
-    pdev->setCursorPositionAsync = hwc_set_cursor_position_async;
-
-    pdev->vsync_period_ns = 1000*1000*1000/60; // vsync is 60 hz
-
-    pdev->timeline_fd = sw_sync_timeline_create();
-    pdev->next_sync_point = 1;
-
-    pdev->blacklisted_apps["com.android.launcher3"] = {};
-    pdev->blacklisted_apps["com.android.settings"] = {"com.android.settings.FallbackHome"};
-    if (property_get("waydroid.blacklist_apps", property, nullptr) > 0) {
-        std::string blacklist_apps = std::string(property);
-        std::istringstream iss(blacklist_apps);
-        std::string app;
-        while (std::getline(iss, app, ':')) {
-            pdev->blacklisted_apps[app] = {};
-        }
     }
 
     if (property_get("waydroid.xdg_runtime_dir", property, "/run/user/1000") > 0) {
@@ -738,30 +691,14 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
     if (property_get("waydroid.wayland_display", property, "wayland-0") > 0) {
         setenv("WAYLAND_DISPLAY", property, 1);
     }
-    if (property_get("ro.hardware.gralloc", property, "default") > 0) {
-        pdev->display = create_display(property);
-    }
-    if (!pdev->display) {
-        ALOGE("failed to open wayland connection");
-        return -ENODEV;
-    }
-    ALOGE("wayland display %p", pdev->display);
 
-    pdev->gralloc_handler = gralloc_handler(pdev->display);
-    pdev->multi_windows = property_get_bool("persist.waydroid.multi_windows", false);
-    if (pdev->multi_windows && !pdev->display->subcompositor) {
-        ALOGW("multi window mode requested but wl_subcompositor is not supported. Disabling it.");
-        pdev->multi_windows = false;
-    }
-    pdev->should_compose = property_get_bool("persist.waydroid.use_subsurface", false) || pdev->multi_windows;
-    if (pdev->should_compose && !pdev->display->subcompositor) {
-        ALOGW("usage of subsurfaces requested but wl_subcompositor is not supported. Disabling it.");
-        pdev->should_compose = false;
+    auto pdev = waydroid_hwc_composer_device_1::create();
+    if (!pdev) {
+        ALOGE("%s failed to allocate dev", __FUNCTION__);
+        return -errno;
     }
 
-    pdev->vsync_callback_enabled = true;
-
-    auto first_window = window::create(pdev->display, pdev->should_compose, "Waydroid", "0", {0, 0, 0, 255});
+    auto first_window = window::create(pdev->display.get(), pdev->should_compose, "Waydroid", "0", {0, 0, 0, 255});
     if (!property_get_bool("waydroid.background_start", true)) {
         pdev->display->windows.add("Waydroid", std::move(first_window));
         property_set("waydroid.active_apps", "Waydroid");
@@ -769,44 +706,15 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
         first_window.reset();
     }
 
-    if (pdev->display->refresh > 1000 && pdev->display->refresh < 1000000)
-        pdev->vsync_period_ns = 1000 * 1000 * 1000 / (pdev->display->refresh / 1000);
-
     if (!property_get_bool("persist.waydroid.cursor_on_subsurface", false)) {
-        pdev->display->cursor_handler.reset(new wl_cursor_cursor_handler(pdev));
+        pdev->display->cursor_handler.reset(new wl_cursor_cursor_handler(pdev.get()));
     } else {
         pdev->display->cursor_handler.reset(new subsurface_cursor_handler());
     }
 
+    *device = &pdev.release()->common;
 
-    struct timespec rt;
-    if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
-       ALOGE("%s:%d error in vsync thread clock_gettime: %s",
-            __FILE__, __LINE__, strerror(errno));
-    }
-
-    pdev->last_vsync_ns = int64_t(rt.tv_sec) * 1e9 + rt.tv_nsec;
-
-    if (!pdev->vsync_thread) {
-        ret = pthread_create (&pdev->vsync_thread, NULL, hwc_vsync_thread, pdev);
-        if (ret) {
-            ALOGE("waydroid_hw_composer could not start vsync_thread\n");
-        }
-    }
-
-    ret = pthread_create (&pdev->binder_thread, NULL, hwc_binder_thread, pdev);
-    if (ret) {
-        ALOGE("waydroid_hw_composer could not start binder thread");
-    }
-
-    ret = pthread_create(&pdev->egl_worker_thread, NULL, egl_loop, pdev->display);
-    if (ret) {
-        ALOGE("waydroid_hw_composer could not start egl_worker_thread");
-    }
-
-    *device = &pdev->common;
-
-    return ret;
+    return 0;
 }
 
 void subsurface_cursor_handler::clear_previous_subsurface_if_needed(waydroid_hwc_composer_device_1 *pdev) {
@@ -877,6 +785,7 @@ int subsurface_cursor_handler::on_cursor_enter(display* display) {
     return 0;
 }
 
+
 wl_cursor_cursor_handler::wl_cursor_cursor_handler(waydroid_hwc_composer_device_1* pdev) {
     cursor_surface_context.surface = wl_compositor_create_surface(pdev->display->compositor);
     if (pdev->display->viewporter && pdev->display->supports_cursor_viewport) {
@@ -899,7 +808,7 @@ int wl_cursor_cursor_handler::apply_cursor(waydroid_hwc_composer_device_1* pdev,
             ALOGE("Failed to prepare cursur surface");
             return -1;
         }
-        set_cursor(pdev->display);
+        set_cursor(pdev->display.get());
     }
     return 0;
 }
@@ -935,3 +844,121 @@ hwc_module_t HAL_MODULE_INFO_SYM = {
         .methods = &hwc_module_methods,
     }
 };
+
+waydroid_hwc_composer_device_1::~waydroid_hwc_composer_device_1() {
+    pthread_kill(egl_worker_thread, SIGTERM);
+    pthread_kill(binder_thread, SIGTERM);
+    pthread_kill(vsync_thread, SIGTERM);
+    pthread_join(egl_worker_thread, nullptr);
+    pthread_join(binder_thread, nullptr);
+    pthread_join(vsync_thread, nullptr);
+}
+
+
+static std::unordered_map<std::string, std::vector<std::string>> create_blacklisted_apps() {
+    std::unordered_map<std::string, std::vector<std::string>> blacklisted_apps;
+
+    blacklisted_apps["com.android.launcher3"] = {};
+    blacklisted_apps["com.android.settings"] = {"com.android.settings.FallbackHome"};
+
+    std::string blacklist_apps = property_get_string("waydroid.blacklist_apps");
+    if (!blacklist_apps.empty()) {
+        std::istringstream iss(blacklist_apps);
+        std::string app;
+        while (std::getline(iss, app, ':')) {
+            blacklisted_apps[app] = {};
+        }
+    }
+
+    return blacklisted_apps;
+}
+static int32_t calculate_vsync_period(struct display *display) {
+    if (display->refresh > 1000 && display->refresh < 1000000) {
+        return 1000 * 1000 * 1000 / (display->refresh / 1000);
+    } else {
+        return 1000 * 1000 * 1000 / 60;
+    }
+}
+static int64_t get_current_time() {
+    struct timespec rt;
+    if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
+        ALOGE("%s:%d error in get_current_time clock_gettime: %s",
+              __FILE__, __LINE__, strerror(errno));
+    }
+    return int64_t(rt.tv_sec) * 1000000 + rt.tv_nsec;
+}
+
+std::unique_ptr<waydroid_hwc_composer_device_1> waydroid_hwc_composer_device_1::create() {
+    std::unique_ptr<struct display> display {
+        create_display(property_get_string("ro.hardware.gralloc", "default").c_str())
+    };
+    if (!display) {
+        ALOGE("failed to open wayland connection");
+        errno = ENODEV;
+        return nullptr;
+    }
+    ALOGI("wayland display %p", display.get());
+
+    bool multi_windows = property_get_bool("persist.waydroid.multi_windows", false);
+    if (multi_windows && !display->subcompositor) {
+        ALOGW("multi window mode requested but wl_subcompositor is not supported. Disabling it.");
+        multi_windows = false;
+    }
+
+    bool should_compose = property_get_bool("persist.waydroid.use_subsurface", false) || multi_windows;
+    if (should_compose && !display->subcompositor) {
+        ALOGW("usage of subsurfaces requested but wl_subcompositor is not supported. Disabling it.");
+        should_compose = false;
+    }
+
+    auto dev = std::unique_ptr<waydroid_hwc_composer_device_1>(new waydroid_hwc_composer_device_1 {
+        {
+            .common = {
+                .tag = HARDWARE_DEVICE_TAG,
+                .version = HWC_DEVICE_API_VERSION_1_5,
+                .module = &HAL_MODULE_INFO_SYM.common,
+                .close = hwc_close
+            },
+            .prepare = hwc_prepare,
+            .set = hwc_set,
+            .eventControl = hwc_event_control,
+            .setPowerMode = hwc_set_power_move,
+            .query = hwc_query,
+            .registerProcs = hwc_register_procs,
+            .dump = nullptr,
+            .getDisplayConfigs = hwc_get_display_configs,
+            .getDisplayAttributes = hwc_get_display_attributes,
+            .getActiveConfig = hwc_get_active_config,
+            .setActiveConfig = hwc_set_active_config,
+            .setCursorPositionAsync = hwc_set_cursor_position_async
+        },
+        .blacklisted_apps = create_blacklisted_apps(),
+        .gralloc_handler = {display.get()},
+        .vsync_period_ns = calculate_vsync_period(display.get()),
+        .should_compose = should_compose,
+        .multi_windows = multi_windows,
+        .vsync_callback_enabled = true,
+        .last_vsync_ns = get_current_time(),
+        .timeline_fd = sw_sync_timeline_create(),
+        .next_sync_point = 1,
+        .selected_mode = {},
+        .display = std::move(display),
+        .procs = nullptr,
+        .egl_worker_thread = {}
+    });
+
+    if (pthread_create (&dev->vsync_thread, NULL, hwc_vsync_thread, dev.get())) {
+        ALOGE("Could not start vsync_thread");
+        return nullptr;
+    }
+    if (pthread_create (&dev->binder_thread, NULL, hwc_binder_thread, dev.get())) {
+        ALOGE("Could not start binder thread");
+        return nullptr;
+    }
+    if (pthread_create(&dev->egl_worker_thread, NULL, egl_loop, dev->display.get())) {
+        ALOGE("waydroid_hw_composer could not start egl_worker_thread");
+        return nullptr;
+    }
+
+    return dev;
+}

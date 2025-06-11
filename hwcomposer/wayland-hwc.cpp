@@ -1890,7 +1890,7 @@ window *open_windows::add(waydroid_hwc_composer_device_1 *pdev, const std::strin
     update([&](){
         auto res = windows.emplace(
             key,
-            window::create(pdev->display, pdev->should_compose, aid, tid, color)
+            window::create(pdev->display.get(), pdev->should_compose, aid, tid, color)
         );
         assert(res.second);
         window = res.first->second.get();

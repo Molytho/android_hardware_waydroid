@@ -72,7 +72,7 @@ int single_window_mode_base::cleanup_stale_windows(waydroid_hwc_composer_device_
         for (auto const& [layer_tid, window] : pdev->display->windows) {
             // Replace inactive app window buffer with snapshot
             if (layer_tid != target_layer_tid && !window->snapshot_buffer) {
-                pdev->display->egl_work_queue.push_back(std::bind(snapshot_inactive_app_window, pdev->display, window.get()));
+                pdev->display->egl_work_queue.push_back(std::bind(snapshot_inactive_app_window, pdev->display.get(), window.get()));
             }
         }
         if (!pdev->display->egl_work_queue.empty()) {

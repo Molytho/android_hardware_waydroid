@@ -1367,7 +1367,9 @@ static void
 presentation_clock_id(void *, struct wp_presentation *,
               uint32_t clk_id)
 {
-    ALOGE("*** %s: clk_id %d CLOCK_MONOTONIC %d", __func__, clk_id, CLOCK_MONOTONIC);
+    if (clk_id != CLOCK_MONOTONIC) {
+        ALOGW("*** %s: compositor does not use CLOCK_MONOTONIC: clk_id %d", __func__, clk_id);
+    }
 }
 
 static const struct wp_presentation_listener presentation_listener = {
@@ -1803,7 +1805,7 @@ registry_handle_global(void *data, struct wl_registry *registry,
         if (!no_presentation) {
             d->presentation = (struct wp_presentation*)wl_registry_bind(registry, id,
                     &wp_presentation_interface, 1);
-            d->presentation.add_listener(presentation_listener, d->user_data_repository, d);
+            d->presentation.add_listener(presentation_listener);
         }
     } else if (strcmp(interface, "wp_viewporter") == 0) {
         d->viewporter = (struct wp_viewporter*)wl_registry_bind(registry, id,

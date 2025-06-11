@@ -34,7 +34,7 @@ window *multi_window_mode::get_window(waydroid_hwc_composer_device_1 *pdev, laye
     auto &windows = pdev->display->windows;
     if (layer_info.type == LayerSplitType::TID) {
         // Create windows based on Task ID in layer name
-        if (is_blacklisted(pdev, layer_info.aid, layer_info.component))
+        if (pdev->is_blacklisted(layer_info.aid, layer_info.component))
             return nullptr;
 
         auto it = windows.find(layer_info.tid);

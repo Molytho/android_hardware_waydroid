@@ -666,7 +666,7 @@ static int hwc_open(const struct hw_module_t*, const char* name,
         return -errno;
     }
 
-    auto first_window = window::create(pdev->display.get(), pdev->should_compose, "Waydroid", "0", {0, 0, 0, 255});
+    auto first_window = window::create(pdev->display.get(), "Waydroid", "0", {0, 0, 0, 255});
     if (!property_get_bool("waydroid.background_start", true)) {
         pdev->display->windows.add("Waydroid", std::move(first_window));
         property_set("waydroid.active_apps", "Waydroid");

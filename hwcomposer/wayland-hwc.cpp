@@ -421,7 +421,7 @@ static const struct wp_fractional_scale_v1_listener fractional_scale_listener = 
 };
 
 std::shared_ptr<window>
-window::create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color)
+window::create(struct display *display, std::string appID, std::string taskID, hwc_color_t color)
 {
     std::shared_ptr<window> window { new struct window() };
     if (!window)
@@ -546,13 +546,9 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
         window->layers.emplace_back(wl::surface<>(window->surface), wp::viewport(window->viewport));
         wl_surface_commit(window->surface);
         return window;
-    } else if (!use_subsurfaces) {
-        /* If we do not use subsurfaces for compositing create at least one for the window content
-         * This surface should be desync so that we don't need to send commits for the background surface.
-         * Since the surface's position will always be (0,0) committing the parent surface is not required then*/
-        window->create_new_layer();
-        wl_subsurface_set_desync(window->layers[0].subsurface);
     }
+
+    window->create_new_layer();
 
     uint32_t *buf = (uint32_t*)shm_data;
     *buf = color.a << 24 | color.r << 16 | color.g << 8 | color.b;
@@ -1894,7 +1890,7 @@ window *open_windows::add(waydroid_hwc_composer_device_1 *pdev, const std::strin
     update([&](){
         auto res = windows.emplace(
             key,
-            window::create(pdev->display.get(), pdev->should_compose, aid, tid, color)
+            window::create(pdev->display.get(), aid, tid, color)
         );
         assert(res.second);
         window = res.first->second.get();

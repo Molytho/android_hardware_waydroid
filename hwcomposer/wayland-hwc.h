@@ -210,7 +210,7 @@ struct window {
 
     ~window();
 
-    static std::shared_ptr<window> create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color);
+    static std::shared_ptr<window> create(struct display *display, std::string appID, std::string taskID, hwc_color_t color);
 
     window::layer &get_next_layer();
     window::layer &create_new_layer();

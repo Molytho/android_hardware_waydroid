@@ -308,7 +308,7 @@ struct display {
     wl::keyboard<struct display *> keyboard;
     wl::touch<struct display *> touch;
     wl::output<struct display *> output;
-    wp::presentation<struct display *> presentation;
+    wp::presentation<> presentation;
     wp::viewporter viewporter;
     wayland::android::wlegl android_wlegl;
     zwp::linux_dmabuf_v1<struct display *> dmabuf;

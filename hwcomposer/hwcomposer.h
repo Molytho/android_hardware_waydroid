@@ -37,6 +37,8 @@
 
 struct waydroid_mode;
 
+using vsync_clock = std::chrono::steady_clock;
+
 class subsurface_cursor_handler : public cursor_handler {
     std::string window_key;
 
@@ -63,12 +65,12 @@ class wl_cursor_cursor_handler : public cursor_handler {
 struct waydroid_hwc_composer_device_1 : hwc_composer_device_1_t {
     const std::unordered_map<std::string, std::vector<std::string>> blacklisted_apps;
     const gralloc_handler gralloc_handler;
-    const int32_t vsync_period_ns;
+    const std::chrono::nanoseconds vsync_period;
     const bool should_compose;
     const bool multi_windows;
 
     std::atomic<bool> vsync_callback_enabled;
-    std::atomic<int64_t> last_vsync_ns;
+    std::atomic<vsync_clock::time_point> last_vsync;
 
     const unique_fd timeline_fd;
     int next_sync_point;

@@ -210,62 +210,36 @@ static int hwc_prepare(hwc_composer_device_1_t* dev,
     return 0;
 }
 
-static long time_to_sleep_to_next_vsync(struct timespec *rt, uint64_t last_vsync_ns, unsigned vsync_period_ns)
-{
-    uint64_t now = (uint64_t)rt->tv_sec * 1e9 + rt->tv_nsec;
-    uint64_t frames_since_last_vsync = (now - last_vsync_ns) / vsync_period_ns + 1;
-    uint64_t next_vsync = last_vsync_ns + frames_since_last_vsync * vsync_period_ns;
 
-    return next_vsync - now;
+static vsync_clock::time_point calculate_time_to_sleep(const vsync_clock::time_point& last_vsync, const vsync_clock::duration& frequency) {
+    auto now = vsync_clock::now();
+    auto frames_size_last_vsync = (now - last_vsync) / frequency;
+    return last_vsync + frequency * (frames_size_last_vsync + 1);
 }
 
-static void* hwc_vsync_thread(void* data) {
+static void* hwc_vsync_thread(void *data) {
+    using time_point = vsync_clock::time_point;
+    static_assert(std::is_same<time_point::duration, std::chrono::nanoseconds>::value);
+
     auto *pdev = static_cast<waydroid_hwc_composer_device_1 *>(data);
     setpriority(PRIO_PROCESS, 0, HAL_PRIORITY_URGENT_DISPLAY);
 
-    struct timespec rt;
-    if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
-        ALOGE("%s:%d error in vsync thread clock_gettime: %s",
-              __FILE__, __LINE__, strerror(errno));
-    }
-    bool vsync_enabled = false;
-
-    struct timespec wait_time;
-    wait_time.tv_sec = 0;
-    wait_time.tv_nsec = time_to_sleep_to_next_vsync(&rt, pdev->last_vsync_ns, pdev->vsync_period_ns);
-
     while (true) {
         ATRACE_BEGIN("hwc_vsync_thread");
-        int err = nanosleep(&wait_time, NULL);
-        if (err == -1) {
-            if (errno == EINTR) {
-                break;
-            }
-            ATRACE_END();
-            ALOGE("error in vsync thread: %s", strerror(errno));
-            continue;
-        }
 
-        vsync_enabled = pdev->vsync_callback_enabled;
+        time_point sleep_until = calculate_time_to_sleep(pdev->last_vsync, pdev->vsync_period);
+        std::this_thread::sleep_until(sleep_until);
 
-        if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
-            ALOGE("%s:%d error in vsync thread clock_gettime: %s",
-                  __FILE__, __LINE__, strerror(errno));
-        }
-
-        wait_time.tv_nsec = time_to_sleep_to_next_vsync(&rt, pdev->last_vsync_ns, pdev->vsync_period_ns);
-
-        if (!vsync_enabled || !pdev->procs || !pdev->procs->vsync) {
+        if (!pdev->vsync_callback_enabled || !pdev->procs || !pdev->procs->vsync) {
             ATRACE_END();
             continue;
         }
 
-        int64_t timestamp = (uint64_t)rt.tv_sec * 1e9 + rt.tv_nsec;
-        pdev->procs->vsync(pdev->procs, 0, timestamp);
+        pdev->procs->vsync(pdev->procs, 0, sleep_until.time_since_epoch().count());
         ATRACE_END();
     }
 
-    return NULL;
+    return nullptr;
 }
 
 static void
@@ -288,7 +262,8 @@ feedback_presented(void *data,
     auto *pdev = static_cast<waydroid_hwc_composer_device_1 *>(data);
     wp_presentation_feedback_destroy(feedback);
 
-    pdev->last_vsync_ns = (((uint64_t)tv_sec_hi << 32) + tv_sec_lo) * 1e9 + tv_nsec;
+    std::chrono::nanoseconds duration = std::chrono::seconds((((uint64_t)tv_sec_hi) << 32) + tv_sec_lo) + std::chrono::nanoseconds(tv_nsec);
+    pdev->last_vsync = vsync_clock::time_point(duration);
 }
 
 static void
@@ -553,7 +528,7 @@ static int32_t hwc_attribute(struct waydroid_hwc_composer_device_1* pdev,
 
     switch(attribute) {
         case HWC_DISPLAY_VSYNC_PERIOD:
-            return pdev->vsync_period_ns;
+            return (int32_t)pdev->vsync_period.count();
         case HWC_DISPLAY_WIDTH: {
             if (property_get("persist.waydroid.width_padding", property, nullptr) > 0)
                 width -= atoi(property);
@@ -872,20 +847,14 @@ static std::unordered_map<std::string, std::vector<std::string>> create_blacklis
 
     return blacklisted_apps;
 }
-static int32_t calculate_vsync_period(struct display *display) {
+static vsync_clock::duration calculate_vsync_period(struct display *display) {
+    using namespace std::chrono_literals;
     if (display->refresh > 1000 && display->refresh < 1000000) {
-        return 1000 * 1000 * 1000 / (display->refresh / 1000);
+        // display->refresh is in mHz
+        return vsync_clock::duration(1000s) / display->refresh;
     } else {
-        return 1000 * 1000 * 1000 / 60;
+        return vsync_clock::duration(1s) / 60;
     }
-}
-static int64_t get_current_time() {
-    struct timespec rt;
-    if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
-        ALOGE("%s:%d error in get_current_time clock_gettime: %s",
-              __FILE__, __LINE__, strerror(errno));
-    }
-    return int64_t(rt.tv_sec) * 1000000 + rt.tv_nsec;
 }
 
 std::unique_ptr<waydroid_hwc_composer_device_1> waydroid_hwc_composer_device_1::create() {
@@ -934,17 +903,16 @@ std::unique_ptr<waydroid_hwc_composer_device_1> waydroid_hwc_composer_device_1::
         },
         .blacklisted_apps = create_blacklisted_apps(),
         .gralloc_handler = {display.get()},
-        .vsync_period_ns = calculate_vsync_period(display.get()),
+        .vsync_period = calculate_vsync_period(display.get()),
         .should_compose = should_compose,
         .multi_windows = multi_windows,
         .vsync_callback_enabled = true,
-        .last_vsync_ns = get_current_time(),
+        .last_vsync = vsync_clock::now(),
         .timeline_fd = sw_sync_timeline_create(),
         .next_sync_point = 1,
         .selected_mode = {},
         .display = std::move(display),
         .procs = nullptr,
-        .egl_worker_thread = {}
     });
 
     if (pthread_create (&dev->vsync_thread, NULL, hwc_vsync_thread, dev.get())) {

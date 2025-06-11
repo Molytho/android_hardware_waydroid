@@ -55,7 +55,7 @@ int single_window_mode_base::cleanup_stale_windows(waydroid_hwc_composer_device_
         return layer_info.type == LayerSplitType::TID;
     });
     if (first_tid_layer != layer_infos.container().cend()) {
-        if (is_blacklisted(pdev, first_tid_layer->aid, first_tid_layer->component)) {
+        if (pdev->is_blacklisted(first_tid_layer->aid, first_tid_layer->component)) {
             clear_open_windows(pdev);
             return 0;
         } else if (pdev->display->ignored_apps.count(first_tid_layer->tid) == 0) {

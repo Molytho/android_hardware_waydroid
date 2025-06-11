@@ -282,13 +282,6 @@ static const struct wp_presentation_feedback_listener feedback_listener = {
     feedback_discarded
 };
 
-bool is_blacklisted(struct waydroid_hwc_composer_device_1* pdev, const std::string &app_id, const std::string &component) {
-    auto match = pdev->blacklisted_apps.find(app_id);
-    if (match == pdev->blacklisted_apps.end())
-        return false;
-    auto &components = match->second;
-    return components.empty() || std::find(components.begin(), components.end(), component) != components.end();
-}
 
 static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surface_context) {
     auto &surface_damage = hwc_layer->surfaceDamage;
@@ -719,6 +712,14 @@ waydroid_hwc_composer_device_1::~waydroid_hwc_composer_device_1() {
     pthread_join(egl_worker_thread, nullptr);
     pthread_join(binder_thread, nullptr);
     pthread_join(vsync_thread, nullptr);
+}
+
+bool waydroid_hwc_composer_device_1::is_blacklisted(const std::string& app_id, const std::string& component) {
+    auto match = blacklisted_apps.find(app_id);
+    if (match == blacklisted_apps.end())
+        return false;
+    auto &components = match->second;
+    return components.empty() || std::find(components.begin(), components.end(), component) != components.end();
 }
 
 

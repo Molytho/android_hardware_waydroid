@@ -39,30 +39,6 @@ struct waydroid_mode;
 
 using vsync_clock = std::chrono::steady_clock;
 
-class subsurface_cursor_handler : public cursor_handler {
-    std::string window_key;
-
-    void clear_previous_subsurface_if_needed(waydroid_hwc_composer_device_1 *pdev);
-
-  public:
-    int apply_cursor(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index) override;
-    int reset_cursor(waydroid_hwc_composer_device_1 *pdev) override;
-    int on_cursor_enter(display *display) override;
-};
-
-class wl_cursor_cursor_handler : public cursor_handler {
-    surface_context cursor_surface_context {};
-
-  public:
-    wl_cursor_cursor_handler(waydroid_hwc_composer_device_1 *pdev);
-
-    std::unique_ptr<buffer> create_buffer(waydroid_hwc_composer_device_1 *pdev, const buffer_metadata& metadata, hwc_layer_1 *hwc_layer) override;
-    void set_cursor(display *display) const;
-    int apply_cursor(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index) override;
-    int reset_cursor(waydroid_hwc_composer_device_1 *pdev) override;
-    int on_cursor_enter(display *display) override;
-};
-
 struct waydroid_hwc_composer_device_1 : hwc_composer_device_1_t {
     const std::unordered_map<std::string, std::vector<std::string>> blacklisted_apps;
     const gralloc_handler gralloc_handler;
@@ -93,5 +69,6 @@ struct waydroid_hwc_composer_device_1 : hwc_composer_device_1_t {
     waydroid_hwc_composer_device_1() = default;
 };
 
+int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, surface_context &surface_context, buffer *buf = nullptr);
 int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, window *window);
 bool is_blacklisted(struct waydroid_hwc_composer_device_1* pdev, const std::string &app_id, const std::string &component);

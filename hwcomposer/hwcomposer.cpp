@@ -308,7 +308,7 @@ static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surfac
     });
 }
 
-static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, surface_context &surface_context, buffer *buf = nullptr) {
+int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, surface_context &surface_context, buffer *buf) {
     constexpr int acquireWarningMS = 100;
     int res = -1;
 
@@ -695,129 +695,6 @@ static int hwc_open(const struct hw_module_t*, const char* name,
 
     return 0;
 }
-
-std::unique_ptr<buffer> cursor_handler::create_buffer(waydroid_hwc_composer_device_1 *pdev, const buffer_metadata& metadata, hwc_layer_1 *hwc_layer) {
-    return pdev->gralloc_handler.create_buffer(pdev->display, metadata, hwc_layer->handle);
-};
-
-void subsurface_cursor_handler::clear_previous_subsurface_if_needed(waydroid_hwc_composer_device_1 *pdev) {
-    /* If should_compose is set, remaining subsurface are cleared in post_processing.
-     * In this case we can skip it here */
-    if (!pdev->should_compose && !window_key.empty()) {
-        auto window_it = pdev->display->windows.find(window_key);
-        if (window_it == pdev->display->windows.end()) {
-            // Window was closed this hwc_set
-            return;
-        }
-
-        assert(window_it->second->layers.size() == 2);
-        auto &last_layer = window_it->second->layers[window_it->second->layers.size() - 1];
-        wl_surface_attach(last_layer.surface, nullptr, 0, 0);
-        wl_surface_commit(last_layer.surface);
-    }
-    window_key = {};
-}
-
-int subsurface_cursor_handler::apply_cursor(waydroid_hwc_composer_device_1* pdev, hwc_layer_1* hwc_layer, size_t hwc_layer_index) {
-    if (!pdev->display->pointer_surface) {
-        if (hwc_layer->acquireFenceFd != -1) {
-            close(hwc_layer->acquireFenceFd);
-        }
-        clear_previous_subsurface_if_needed(pdev);
-        return 0;
-    }
-
-    auto window_it = std::find_if(pdev->display->windows.begin(), pdev->display->windows.end(), [&](const auto &it){
-        auto &window = it.second;
-        return window->surface == pdev->display->pointer_surface
-               || std::any_of(window->layers.begin(), window->layers.end(), [&](const auto &layer) {
-                      return layer.surface == pdev->display->pointer_surface;
-                  });
-    });
-    if (window_it == pdev->display->windows.end()) {
-        if (hwc_layer->acquireFenceFd != -1) {
-            close(hwc_layer->acquireFenceFd);
-        }
-        clear_previous_subsurface_if_needed(pdev);
-        return 0;
-    }
-
-
-    int res = apply_hwc_layer_to_window(pdev, hwc_layer, hwc_layer_index, window_it->second.get());
-    if (res == 0) {
-        window_key = window_it->first;
-        return 0;
-    } else {
-        window_key = {};
-        return res;
-    }
-}
-
-int subsurface_cursor_handler::reset_cursor(waydroid_hwc_composer_device_1* pdev) {
-    clear_previous_subsurface_if_needed(pdev);
-    return 0;
-}
-
-int subsurface_cursor_handler::on_cursor_enter(display* display) {
-    if (display->pointer) {
-        wl_pointer_set_cursor(display->pointer, display->pointer_enter_serial,
-                              nullptr,
-                              0,
-                              0);
-    }
-    return 0;
-}
-
-
-wl_cursor_cursor_handler::wl_cursor_cursor_handler(waydroid_hwc_composer_device_1* pdev) {
-    cursor_surface_context.surface = wl_compositor_create_surface(pdev->display->compositor);
-    if (pdev->display->viewporter && pdev->display->supports_cursor_viewport) {
-        cursor_surface_context.viewport =
-                wp_viewporter_get_viewport(pdev->display->viewporter, cursor_surface_context.surface);
-    }
-}
-
-std::unique_ptr<buffer> wl_cursor_cursor_handler::create_buffer(waydroid_hwc_composer_device_1* pdev, const buffer_metadata& metadata, hwc_layer_1 *hwc_layer) {
-    if (pdev->display->supports_cursor_hw_buffer)
-        return cursor_handler::create_buffer(pdev, metadata, hwc_layer);
-    else
-        return create_shm_wl_buffer (pdev->display, metadata, hwc_layer->handle);
-}
-
-void wl_cursor_cursor_handler::set_cursor(display* display) const {
-    assert(display->pointer);
-    wl_pointer_set_cursor (display->pointer, display->pointer_enter_serial,
-                          cursor_surface_context.surface,
-                          round(display->cursor_hotspot.x / display->scale),
-                          round(display->cursor_hotspot.y / display->scale));
-}
-
-int wl_cursor_cursor_handler::apply_cursor(waydroid_hwc_composer_device_1* pdev, hwc_layer_1* hwc_layer, size_t hwc_layer_index) {
-    if (pdev->display->pointer) {
-        if (apply_hwc_layer_to_surface_context(pdev, hwc_layer, hwc_layer_index, cursor_surface_context) != 0) {
-            ALOGE("Failed to prepare cursur surface");
-            return -1;
-        }
-        set_cursor(pdev->display.get());
-    }
-    return 0;
-}
-
-int wl_cursor_cursor_handler::reset_cursor(waydroid_hwc_composer_device_1* pdev) {
-    if (pdev->display->pointer) {
-        wl_pointer_set_cursor(pdev->display->pointer, pdev->display->pointer_enter_serial,
-                              nullptr,
-                              0,
-                              0);
-    }
-    return 0;
-}
-
-int wl_cursor_cursor_handler::on_cursor_enter(display* display) {
-    set_cursor(display);
-    return 0;
-}
-
 
 static struct hw_module_methods_t hwc_module_methods = {
     .open = hwc_open,

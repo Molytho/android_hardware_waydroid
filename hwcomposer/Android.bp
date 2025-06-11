@@ -60,6 +60,7 @@ cc_library_shared {
         "modes/full-ui.cpp",
         "modes/multi-window.cpp",
         "modes/single-window.cpp",
+        "wayland/shm_pool.cpp"
     ],
     header_libs: [
         "libsystem_headers",

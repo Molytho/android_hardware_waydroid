@@ -113,7 +113,7 @@ void egl_render_to_pixels(struct display* display, struct buffer* buf) {
 
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
 
-    glReadPixels(0, 0, buf->metadata.width, buf->metadata.height, GL_BGRA_EXT, GL_UNSIGNED_BYTE, buf->shm_data);
+    glReadPixels(0, 0, buf->metadata.width, buf->metadata.height, GL_BGRA_EXT, GL_UNSIGNED_BYTE, buf->map.data());
 
     glDeleteTextures(1, &texture);
     eglDestroyImageKHR(display->egl_dpy, image);

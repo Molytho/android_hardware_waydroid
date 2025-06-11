@@ -44,6 +44,7 @@
 
 #include "egl-tools.h"
 #include "wayland-hwc.h"
+#include "wayland/shm_pool.h"
 
 namespace {
     uint32_t ConvertHalFormatToShm(uint32_t hal_format) {
@@ -77,25 +78,17 @@ std::unique_ptr<buffer> create_shm_wl_buffer(display *display, const buffer_meta
     buf->metadata = metadata;
     buf->handle = handle;
 
-    buf->isShm = true;
-    buf->size = size;
-
     auto shm_format = ConvertHalFormatToShm(metadata.format);
     assert(shm_format >= 0);
 
-    int fd = syscall(SYS_memfd_create, "buffer", MFD_ALLOW_SEALING);
-    ftruncate(fd, size);
-    buf->shm_data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (buf->shm_data == MAP_FAILED) {
-        ALOGE("mmap failed");
-        close(fd);
+    auto shm_pool = wayland::shm_pool::create(display, "buffer", size);
+    if (!shm_pool) {
         return nullptr;
     }
-    wl::shm_pool pool = wl_shm_create_pool(display->shm, fd, size);
-    close(fd);
 
-    buf->wl_buffer = wl_shm_pool_create_buffer(pool, 0, metadata.width, metadata.height, shm_stride, shm_format);
+    buf->wl_buffer = wl_shm_pool_create_buffer(shm_pool, 0, metadata.width, metadata.height, shm_stride, shm_format);
     buf->wl_buffer.add_listener(buffer_listener);
+    std::tie(std::ignore, buf->map, std::ignore) = shm_pool.destruct();
 
     return buf;
 }
@@ -276,7 +269,7 @@ void update_shm_buffer_default(display *, buffer *buffer) {
         shm_stride = buffer->metadata.width;
         for (int i = 0; i < buffer->metadata.height; i++) {
             uint32_t* source = (uint32_t*)data + (i * src_stride);
-            uint32_t* dist = (uint32_t*)buffer->shm_data + (i * shm_stride);
+            uint32_t* dist = (uint32_t*)buffer->map.data() + (i * shm_stride);
             uint32_t* end = dist + shm_stride;
 
             while (dist < end) {

@@ -61,6 +61,7 @@
 
 #include <wayland-util.h>
 #include "wayland/wrapper.h"
+#include "resource_wrapper.h"
 
 using ::android::sp;
 using ::vendor::waydroid::task::V1_0::IWaydroidTask;
@@ -126,11 +127,11 @@ struct buffer {
     buffer_handle_t handle;
     buffer_metadata metadata;
 
-    bool isShm;
-    void *shm_data;
-    int size;
+    mmap_wrapper map;
 
-    ~buffer();
+    bool is_shm() const {
+        return static_cast<bool>(map);
+    }
 };
 
 enum class BufferTransform : int32_t {

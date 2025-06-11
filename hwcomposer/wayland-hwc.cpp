@@ -65,8 +65,10 @@
 
 #include <xkbcommon/xkbcommon.h>
 #include <cinttypes>
+#include <memory>
 
 #include "gralloc_handler.h"
+#include "cursor_handler.h"
 
 using ::android::hardware::hidl_string;
 
@@ -1986,6 +1988,14 @@ create_display(const char *gralloc)
         sem_destroy(&display->egl_done);
         return nullptr;
     }
+
+    display->cursor_handler = [&]() -> std::unique_ptr<cursor_handler> {
+        if (!property_get_bool("persist.waydroid.cursor_on_subsurface", false)) {
+            return std::make_unique<wl_cursor_cursor_handler>(display);
+        } else {
+            return std::make_unique<subsurface_cursor_handler>();
+        }
+    }();
 
     display->task = IWaydroidTask::getService();
     return display;

@@ -54,6 +54,7 @@ cc_library_shared {
         "WaydroidClipboard.cpp",
         "WaydroidWindow.cpp",
         "egl-tools.cpp",
+        "cursor_handler.cpp",
         "modes/waydroid_mode.cpp",
         "modes/closed.cpp",
         "modes/full-ui.cpp",
